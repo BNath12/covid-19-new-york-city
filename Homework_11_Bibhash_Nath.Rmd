@@ -1,0 +1,160 @@
+---
+title: "Data Analysis and Visualization in R"
+author: "Bibhash Nath"
+date: "4/20/2021"
+output:
+  html_document: default
+  word_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+
+knitr::opts_chunk$set(echo = TRUE)
+
+```
+
+## Set up a R project for the R-Spatial section. 
+
+```{r}
+library(sf)
+library(sp)
+library(rgdal)
+require(ggmap)
+library(tidyverse) #for tidyverse functions
+library(janitor) # For cleaning up column names
+```
+
+## Read the NYC postal areas in Shapefiles into sf and sp objects. As NYC DOH publishes COVID-19 data by zip code, we will utilize the postal area data later.
+
+```{r}
+nyc_zc_sf <- st_read("ZIP_CODE_040114.shp")
+class(nyc_zc_sf) # is a sf object
+plot(nyc_zc_sf['ZIPCODE'])
+
+nyc_zc_sp <- readOGR("ZIP_CODE_040114.shp")
+class(nyc_zc_sp) # is a sp object
+```
+
+## Read and process the NYC public health services spreadsheet data. Create sf and sp objects from geographic coordinates.
+
+```{r}
+nys_hf <- read_csv("NYS_Health_Facility.csv") # reading health facility data
+county <- c("Bronx", "Kings", "Queens", "New York", "Richmond") # subset for NYC
+nyc_hf <- nys_hf %>% filter(`Facility County` %in% county) %>% 
+  filter(`Facility Latitude` > 0) %>%
+  drop_na(`Facility Latitude`) # subset for NYC, dropping NA and zero values
+
+nyc_hf <- tidyr::separate(nyc_hf, `Facility Location`, into = c("Latitude", "Longitude"), sep = ",")
+nyc_hf <- nyc_hf %>% mutate(Latitude = str_replace_all(Latitude, "\\*|\\(|\\)", ""))
+nyc_hf <- nyc_hf %>% mutate(Longitude = str_replace_all(Longitude, "\\*|\\(|\\)", ""))
+nyc_hf$Latitude <- as.numeric(as.character(nyc_hf$Latitude))
+nyc_hf$Longitude <- as.numeric(as.character(nyc_hf$Longitude))
+# above lines of code were used to clean latitude and longitude and make numeric.
+```
+
+```{r}
+# sf objects for nyc health facility
+nyc_hf_sf <- st_as_sf(nyc_hf, coords = c("Longitude", "Latitude"))
+st_crs(nyc_hf_sf) <- 4326 # set CRS to WGS84
+class(nyc_hf_sf) # is a sf object
+
+# sp objects for nyc health facility
+coordinates(nyc_hf) <- c("Longitude", "Latitude")
+proj4string(nyc_hf) <- CRS("+init=epsg:4326")
+proj4string(nyc_hf)
+class(nyc_hf) # is a sp object
+```
+
+## Read and process the NYS retail food stores data. Create sf and sp objects from geographic coordinates for NYC.
+
+```{r}
+nys_rf <- read_csv("NYS_Retail_Food_Stores.csv")
+nys_rf <- clean_names(nys_rf)
+county_sub <- c("Bronx", "Kings", "Queens", "New York", "Richmond") # subset for NYC
+nyc_rf <- nys_rf %>% filter(county %in% county_sub) # subset for NYC
+
+nyc_rf <- tidyr::separate(nyc_rf, location, into = c("location", "clean"), sep = "[(]")
+nyc_rf <- tidyr::separate(nyc_rf, clean, into = c("Latitude", "Longitude"), sep = ",")
+nyc_rf <- nyc_rf %>% mutate(Longitude = str_replace_all(Longitude, "\\*|\\(|\\)", ""))
+nyc_rf$Latitude <- as.numeric(as.character(nyc_rf$Latitude))
+nyc_rf$Longitude <- as.numeric(as.character(nyc_rf$Longitude))
+nyc_rf <- nyc_rf %>% filter(nyc_rf$Latitude > 40)
+# above lines of code were used to clean latitude and longitude and make numeric.
+```
+
+```{r}
+# sf objects for nyc retail stores
+nyc_rf_sf <- st_as_sf(nyc_rf, coords = c("Longitude", "Latitude"))
+st_crs(nyc_rf_sf) <- 4326 # set CRS to WGS84
+class(nyc_rf_sf) # is a sf object
+
+# sp objects for nyc retail stores
+coordinates(nyc_rf) <- c("Longitude", "Latitude")
+proj4string(nyc_rf) <- CRS("+init=epsg:4326")
+proj4string(nyc_rf)
+class(nyc_rf) # is a sp object
+```
+
+## Use simple mapping method with a basemap to verify the above datasets in terms of their geometry locations.
+
+```{r}
+# For NYC health facility
+# verify sf objects
+nyc_hf_sf %>% st_union() %>% st_bbox() %>% as.vector() %>%
+  ggmap::get_stamenmap(zoom = 11) -> baseMap
+
+ggmap(baseMap) +
+  geom_point(aes(x=X, y=Y), 
+             data = nyc_hf_sf %>% st_coordinates() %>% 
+               tibble::as_tibble(),
+             color = 'red',
+             size = 1,
+             alpha = .5
+  )
+```
+
+```{r}
+# verify sp objects
+nyc_hf@bbox %>%  as.vector() %>%
+  ggmap::get_stamenmap(zoom = 11) %>%
+  ggmap() +
+  geom_point(aes(x=Longitude, y=Latitude), 
+             data = nyc_hf %>% coordinates() %>% 
+               tibble::as_tibble(),
+             color = 'blue',
+             size = 1,
+             alpha = .2
+  )
+```
+
+```{r}
+# For Retail food stores
+# verify sf objects
+nyc_rf_sf %>% st_union() %>% st_bbox() %>% as.vector() %>%
+  ggmap::get_stamenmap(zoom = 11) -> baseMap1
+
+ggmap(baseMap1) +
+  geom_point(aes(x=X, y=Y), 
+             data = nyc_rf_sf %>% st_coordinates() %>% 
+               tibble::as_tibble(),
+             color = 'red',
+             size = 1,
+             alpha = .5
+  )
+```
+
+```{r}
+# verify sp objects
+nyc_rf@bbox %>%  as.vector() %>%
+  ggmap::get_stamenmap(zoom = 11) %>%
+  ggmap() +
+  geom_point(aes(x=Longitude, y=Latitude), 
+             data = nyc_rf %>% coordinates() %>% 
+               tibble::as_tibble(),
+             color = 'blue',
+             size = 1,
+             alpha = .2
+  )
+```
+
